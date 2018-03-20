@@ -2,7 +2,7 @@
  * @Author: zhaoye 
  * @Date: 2018-03-19 16:30:05 
  * @Last Modified by: zhaoye
- * @Last Modified time: 2018-03-20 20:10:21
+ * @Last Modified time: 2018-03-20 23:51:19
  */
 // 语法图
 /*
@@ -17,41 +17,32 @@
                                                                                                        |___ - ___|
 */
 // BNF:
-// Number           : float sience?
-//                  | integer sience?
-// float            : integer . digit*
+// Number           : float 
+//                  | float sience
+//                  | integer
+//                  | integer sience
+
+// float            : integer . digit+
+
 // integer          : 0
 //                  | '-' UnsignedInteger
 //                  | UnsignedInteger
-// UnsignedInteger  : [1-9] digit*
-// sience           : e '+' digit+
+
+// UnsignedInteger  : [1-9]
+//                  | [1-9] digit+
+
+// sience           : e
+//                  | E
+//                  | e '+'
+//                  | e '-'
+//                  | E '+'
+//                  | E '-'
+//                  | e digit+
+//                  | E digit+
+//                  | e '+' digit+
 //                  | E '+' digit+
-// 
-
-// TOKENS:
-// Number
-// UnsignedNumber
-// sience
-// integer
-// float
-// digit
-
-const States = {
-    digit: false,
-    sience: false,
-    unsignedInteger: false,
-    integer: false,
-    float: false,
-    reset: function () {
-        States.digit = false
-        States.sience = false
-        States.unsignedInteger = false
-        States.integer = false
-        States.float = false
-    }
-}
-
-let Matching = false
+//                  | e '-' digit+
+//                  | E '-' digit+
 
 function isDigit (str) {
     if (!str) {
@@ -76,12 +67,15 @@ function isSience (buf) {
                             result = true
                         }
                     } while (buf.next())
-                    buf.restore()
-                    buf.restore()
-                    return result
+                    if (result) {
+                        buf.retract()
+                        buf.retract()
+                        return result
+                    }
                 }
             }
-            buf.restore()
+            buf.revoke()
+            return false
         }
     }
     return false
@@ -96,7 +90,7 @@ function matchUnsignedInteger (buf) {
                     break
                 }
             } while (buf.next())
-            buf.restore()
+            buf.retract()
         }
         return true
     }
@@ -111,9 +105,8 @@ function matchInteger (buf) {
             } else {
                 buf.back()
             }
-        } else {
-            return true
         }
+        return true
     } else if (buf.getValue() == '-') {
         let result = false
         if (buf.store()) {
@@ -122,7 +115,7 @@ function matchInteger (buf) {
             } else {
                 result = false
             }
-            buf.restore()
+            buf.retract()
         }
         return result
     } else {
@@ -136,20 +129,23 @@ function matchFloat (buf) {
         if (buf.store()) {
             if (buf.getCurChar() == '.') {
                 if (buf.store()) {
+                    let result = false
                     do {
                         if (!buf.getCurChar().match(/[0-9]/)) {
                             buf.back()
+                            result = true
                             break
                         }
                     } while(buf.next())
-                    buf.restore()
+                    if (result) {
+                        buf.retract()
+                        buf.retract()                  
+                        return true
+                    }
                 }
-                buf.restore()
-                return true
-            } else {
-                buf.unstore()
-                return false
             }
+            buf.revoke()
+            return false
         }
     } else {
         return false
@@ -161,6 +157,34 @@ function matchNumber (buf) {
         return true
     } else if (matchInteger(buf)) {
         return true
+    }
+}
+
+function matchString (buf) {
+    if (buf.getValue() == '"') {
+        if (buf.store()) {
+            do {
+                if (buf.getCurChar() == '"') {
+                    buf.retract()
+                    return true
+                    break
+                }
+            } while (buf.next())
+        }
+        buf.revoke()
+        return false
+    } else if (buf.getValue() == "'") {
+        if (buf.store()) {
+            do {
+                if (buf.getCurChar() == "'") {
+                    buf.retract()
+                    return true
+                    break
+                }
+            } while (buf.next())
+        }
+        buf.revoke()
+        return false
     }
 }
 
@@ -220,11 +244,11 @@ class Buf {
             return false
         }
     }
-    restore () {
+    retract () {
         this._start = this._startStack[this._startStack.length - 1]
         this._startStack.pop()
     }
-    unstore () {
+    revoke () {
         this._start = this._startStack[this._startStack.length - 1]
         this._startStack.pop()
         this._iter.setValue(this._start)
@@ -264,54 +288,84 @@ class Buf {
     }
 }
 const tokens = []
-function tokenize (str) {
+function getToken (buf) {
+    if (matchString(buf)) {
+        tokens.push(new Token({
+            start: buf.start(),
+            end: buf.end(),
+            content: buf.getValue(),
+            name: 'string',
+        }))
+    } else if (matchNumber(buf)) {
+        tokens.push(new Token({
+            start: buf.start(),
+            end: buf.end(),
+            content: buf.getValue(),
+            name: 'Number',
+        }))
+    } else if (isSience(buf)) {
+        tokens.push(new Token({
+            start: buf.start(),
+            end: buf.end(),
+            content: buf.getValue(),
+            name: 'Sience',
+        }))
+    } else if (buf.getValue() == '{') {
+        tokens.push(new Token({
+            start: buf.start(),
+            end: buf.end(),
+            content: buf.getValue(),
+            name: '{'
+        }))
+    } else if (buf.getValue() == '}') {
+        tokens.push(new Token({
+            start: buf.start(),
+            end: buf.end(),
+            content: buf.getValue(),
+            name: '}'
+        }))
+    } else if (buf.getValue() == ':') {
+        tokens.push(new Token({
+            start: buf.start(),
+            end: buf.end(),
+            content: buf.getValue(),
+            name: ':'
+        }))
+    } else {
+        throw new Error('syntax error')
+    }
+    buf.eat()
+    return tokens[tokens.length - 1]
+}
+
+
+
+function parse (str) {
     const iter = new Iter
     let buf = new Buf(str, iter)
-    let i = 0
-    while (i < str.length) {
-        if (matchNumber(buf)) {
-            tokens.push(new Token({
-                start: buf.start(),
-                end: buf.end(),
-                content: buf.getValue(),
-                name: 'Number',
-            }))
-        } else if (isSience(buf)) {
-            tokens.push(new Token({
-                start: buf.start(),
-                end: buf.end(),
-                content: buf.getValue(),
-                name: 'Sience',
-            }))
-        } else if (buf.getValue() == '{') {
-            tokens.push(new Token({
-                start: buf.start(),
-                end: buf.end(),
-                content: buf.getValue(),
-                name: '{'
-            }))
-        } else if (buf.getValue() == '}') {
-            tokens.push(new Token({
-                start: buf.start(),
-                end: buf.end(),
-                content: buf.getValue(),
-                name: '}'
-            }))
-        } else if (buf.getValue() == ':') {
-            tokens.push(new Token({
-                start: buf.start(),
-                end: buf.end(),
-                content: buf.getValue(),
-                name: ':'
-            }))
-        }
-        i = buf.eat()
-        console.log(i)
+    let token = getToken(buf)
+    if (token.name != '{') {
+        throw new Error('expected {')
+    }
+    token = getToken(buf)
+    if (token.name != 'string') {
+        throw new Error('expected string')
+    }
+    token = getToken(buf)
+    if (token.name != ':') {
+        throw new Error('expected :')
+    }
+    token = getToken(buf)
+    if (token.name != 'Number') {
+        throw new Error('expected Number')
+    }
+    token = getToken(buf)
+    if (token.name != '}') {
+        throw new Error('expected }')
     }
 }
 
-tokenize('{"E+123":-1.23f}')
-
+parse("{\"'E+.\":-155.23}")
 
 console.log(tokens)
 
